@@ -87,7 +87,7 @@ def build_interactive_card(stock_price, news_list, date_str, stock_name="华勤�
     elements.append({
         "tag": "div",
         "text": {
-            "tag": "markdown",
+            "tag": "lark_md",
             "content": "\n".join(stock_lines)
         }
     })
@@ -98,7 +98,7 @@ def build_interactive_card(stock_price, news_list, date_str, stock_name="华勤�
         elements.append({
             "tag": "div",
             "text": {
-                "tag": "markdown",
+                "tag": "lark_md",
                 "content": f"**📰 共 {len(news_list)} 条相关新闻**"
             }
         })
@@ -123,7 +123,7 @@ def build_interactive_card(stock_price, news_list, date_str, stock_name="华勤�
             elements.append({
                 "tag": "div",
                 "text": {
-                    "tag": "markdown",
+                    "tag": "lark_md",
                     "content": news_text
                 }
             })
@@ -131,7 +131,7 @@ def build_interactive_card(stock_price, news_list, date_str, stock_name="华勤�
         elements.append({
             "tag": "div",
             "text": {
-                "tag": "markdown",
+                "tag": "lark_md",
                 "content": "最近24小时暂无相关新闻。"
             }
         })
