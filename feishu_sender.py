@@ -7,8 +7,12 @@ import requests
 
 def send_webhook_message(webhook_url, content, msg_type="text"):
     """通过 Webhook 发送消息"""
-    if not webhook_url:
+    if not webhook_url or webhook_url.strip() == "":
         print("[错误] 未配置 Webhook URL")
+        return False
+
+    if not webhook_url.startswith("http"):
+        print(f"[错误] Webhook URL 格式无效: {webhook_url[:30]}...")
         return False
 
     payload = {"msg_type": msg_type}
@@ -31,11 +35,18 @@ def send_webhook_message(webhook_url, content, msg_type="text"):
             timeout=15,
         )
         text = resp.text.strip()
+        print(f"[调试] 飞书响应状态码: {resp.status_code}, 响应长度: {len(text)}", flush=True)
+        if not text:
+            print(f"[错误] 飞书返回空响应 (状态码: {resp.status_code})")
+            return False
         idx = 0
         while idx < len(text) and text[idx] not in "{[":
             idx += 1
         if idx > 0:
             text = text[idx:]
+        if not text:
+            print(f"[错误] 飞书响应无有效JSON")
+            return False
         result = json.loads(text)
         if result.get("code") == 0:
             print("[OK] 飞书消息发送成功")

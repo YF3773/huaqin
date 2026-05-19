@@ -66,42 +66,53 @@ def fetch_eastmoney_news(stock_code="603296", stock_name="华勤技术", page_si
         {"url": "https://push.eastmoney.com/api/qt/article/list", "params": {"secuCode": stock_code, "secuMarket": "1", "pageNum": 1, "pageSize": page_size}},
     ]
 
-    data = None
     for api in apis:
         try:
             resp = requests.get(api["url"], params=api["params"], headers=headers, timeout=10, proxies=proxies)
             text = resp.text.strip()
             if not text:
                 continue
-            if text.startswith("jQuery"):
+            if not text.startswith("{"):
                 match = re.search(r'\(([\s\S]+)\)\s*$', text)
                 if match:
                     text = match.group(1)
             parsed = json.loads(text)
-            if isinstance(parsed, dict) and any(k in parsed for k in ["data", "list", "result"]):
-                data = parsed
-                if data.get("data") or data.get("list"):
-                    break
-            elif isinstance(parsed, list) and len(parsed) > 0:
-                return parse_article_list(parsed, "东方财富")
+            articles = extract_articles_from_response(parsed)
+            if articles:
+                print(f"[调试] 东方财富接口 {api['url'].split('/')[-1]} 获取到 {len(articles)} 条新闻", flush=True)
+                return parse_article_list(articles, "东方财富")
         except Exception as e:
             print(f"[调试] 东方财富接口 {api['url']} 失败: {e}", flush=True)
-            data = None
             continue
-
-    if data:
-        articles = []
-        if "data" in data and isinstance(data["data"], list):
-            articles = data["data"]
-        elif "list" in data:
-            articles = data["list"]
-        elif "result" in data and "list" in data.get("result", {}):
-            articles = data["result"]["list"]
-        if articles:
-            return parse_article_list(articles, "东方财富")
 
     print(f"[调试] 东方财富接口均返回空，尝试HTML抓取兜底...", flush=True)
     return fetch_eastmoney_news_html(stock_code, page_size)
+
+
+def extract_articles_from_response(data):
+    """从各种API响应结构中提取文章列表"""
+    if not data:
+        return None
+    if isinstance(data, list):
+        return data
+    for key in ["list", "data", "result", "articles"]:
+        val = data.get(key)
+        if isinstance(val, list):
+            if val:
+                return val
+    if isinstance(data.get("data"), dict):
+        for sub in ["list", "articles", "result"]:
+            val = data["data"].get(sub)
+            if isinstance(val, list):
+                if val:
+                    return val
+    if isinstance(data.get("result"), dict):
+        for sub in ["list", "data", "articles"]:
+            val = data["result"].get(sub)
+            if isinstance(val, list):
+                if val:
+                    return val
+    return None
 
 
 def parse_article_list(articles, source):
@@ -245,8 +256,94 @@ def fetch_sina_news(stock_code="603296"):
     return results
 
 
+def fetch_baidu_news(keyword="华勤技术", page_size=20):
+    """通过百度新闻搜索获取新闻作为兜底"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    proxies = {"http": None, "https": None}
+    results = []
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(
+                f"https://news.baidu.com/ns?word={urllib.parse.quote(keyword)}&pn=0&rn={page_size}&ct=1&tn=news&ie=utf-8&bt=0&et=0",
+                headers=headers, timeout=15, proxies=proxies
+            )
+            resp.encoding = "utf-8"
+            html = resp.text
+            items = re.findall(r'<h3[^>]*>.*?<a\s+href="([^"]+)"[^>]*>(.*?)</a>.*?</h3>', html, re.DOTALL)
+            if not items:
+                items = re.findall(r'<a[^>]+href="(https?://[^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL)
+                if items:
+                    items = [(u, t) for u, t in items if keyword in u or keyword in t]
+            for url, title_html in items:
+                title = re.sub(r'<[^>]+>', '', title_html).strip()
+                if not title:
+                    continue
+                results.append({
+                    "title": title,
+                    "summary": "",
+                    "source": "百度新闻",
+                    "url": url,
+                    "pub_time": datetime.now(CST).strftime("%Y-%m-%d %H:%M"),
+                    "timestamp": time.time(),
+                })
+            if results:
+                break
+        except Exception as e:
+            print(f"[调试] 百度新闻抓取失败(第{attempt+1}次): {e}", flush=True)
+            time.sleep(1)
+    return results[:page_size]
+
+
+def fetch_stock_price_sina(stock_code="603296"):
+    """通过新浪财经获取实时股票行情"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://finance.sina.com.cn/",
+    }
+    proxies = {"http": None, "https": None}
+    try:
+        resp = requests.get(f"https://hq.sinajs.cn/list=sh{stock_code}", headers=headers, timeout=10, proxies=proxies)
+        resp.encoding = "gbk"
+        text = resp.text.strip()
+        if "hq_str_" not in text:
+            return None
+        parts = text.split('"')[1].split(",")
+        if len(parts) < 32:
+            return None
+        price = float(parts[3]) if parts[3] else 0
+        if price <= 0 or price > 10000:
+            return None
+        prev_close = float(parts[2]) if parts[2] else price
+        change = price - prev_close
+        change_pct = (change / prev_close * 100) if prev_close > 0 else 0
+        return {
+            "name": parts[0] if parts[0] else stock_code,
+            "code": stock_code,
+            "price": f"{price:.2f}",
+            "high": f"{float(parts[4]):.2f}" if parts[4] else "--",
+            "low": f"{float(parts[5]):.2f}" if parts[5] else "--",
+            "open": f"{float(parts[1]):.2f}" if parts[1] else "--",
+            "change": f"{change:.2f}",
+            "change_pct": f"{change_pct:+.2f}%",
+            "total_market_cap": "--",
+            "circulating_market_cap": "--",
+        }
+    except Exception as e:
+        print(f"[调试] 新浪行情接口失败: {e}", flush=True)
+    return None
+
+
 def fetch_stock_price(stock_code="603296"):
-    """获取实时股票行情（含数据合理性校验）"""
+    """获取实时股票行情（新浪 -> 东方财富兜底）"""
+    result = fetch_stock_price_sina(stock_code)
+    if result:
+        print(f"[调试] 新浪行情获取成功: {result['price']} 元", flush=True)
+        return result
+
     urls = [
         {"url": "https://push2.eastmoney.com/api/qt/stock/get", "params": {"secid": f"1.{stock_code}", "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f169,f170,f100"}},
         {"url": "https://push2.eastmoney.com/api/qt/stock/get", "params": {"secid": f"0.{stock_code}", "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f169,f170,f100"}},
@@ -303,7 +400,7 @@ def fetch_stock_price(stock_code="603296"):
                     "circulating_market_cap": format_market_cap(d.get("f170")),
                 }
         except Exception as e:
-            print(f"[调试] 行情接口 {api['url']} 失败: {e}", flush=True)
+            print(f"[调试] 东方财富行情接口 {api['url']} 失败: {e}", flush=True)
             continue
 
     print(f"[警告] 股票行情获取失败", flush=True)
@@ -327,15 +424,18 @@ def fetch_all_news(stock_code="603296", stock_name="华勤技术", hours_back=24
     all_news = []
     try:
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             em_future = executor.submit(fetch_eastmoney_news, stock_code, stock_name, max_count)
             sina_future = executor.submit(fetch_sina_news, stock_code)
+            baidu_future = executor.submit(fetch_baidu_news, stock_name, max_count)
             all_news.extend(em_future.result())
             all_news.extend(sina_future.result())
+            all_news.extend(baidu_future.result())
     except Exception as e:
         print(f"[警告] 并行抓取失败，切换为串行: {e}", flush=True)
         all_news.extend(fetch_eastmoney_news(stock_code, stock_name, max_count))
         all_news.extend(fetch_sina_news(stock_code))
+        all_news.extend(fetch_baidu_news(stock_name, max_count))
 
     all_news = deduplicate_news(all_news)
     all_news.sort(key=lambda x: x["timestamp"], reverse=True)
