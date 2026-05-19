@@ -31,7 +31,7 @@ def main():
         print("股价查询失败，继续获取新闻...", flush=True)
 
     print("开始获取新闻...", flush=True)
-    news_list = fetch_all_news(STOCK_CODE, NEWS_HOURS_BACK, NEWS_MAX_COUNT)
+    news_list = fetch_all_news(STOCK_CODE, STOCK_NAME, NEWS_HOURS_BACK, NEWS_MAX_COUNT)
     print(f"共获取到 {len(news_list)} 条新闻", flush=True)
 
     print("发送飞书消息...", flush=True)

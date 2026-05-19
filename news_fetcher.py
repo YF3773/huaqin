@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 CST = timezone(timedelta(hours=8))
 
 
-def fetch_eastmoney_news(stock_code="603296", page_size=20):
-    """从东方财富获取个股新闻（尝试多个接口）"""
+def fetch_eastmoney_news(stock_code="603296", stock_name="华勤技术", page_size=20):
+    """从东方财富获取个股新闻（尝试多个接口 + HTML抓取兜底）"""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://guba.eastmoney.com/",
@@ -39,9 +39,30 @@ def fetch_eastmoney_news(stock_code="603296", page_size=20):
         }
     }
 
+    keyword_param = {
+        "uid": "",
+        "keyword": stock_name,
+        "type": ["cmsArticleWebOld"],
+        "client": "web",
+        "clientType": "web",
+        "clientVersion": "curr",
+        "param": {
+            "cmsArticleWebOld": {
+                "searchScope": "default",
+                "sort": "default",
+                "pageIndex": 1,
+                "pageSize": page_size,
+                "preTag": "",
+                "postTag": "",
+                "needPreTag": True
+            }
+        }
+    }
+
     apis = [
         {"url": "https://push2.eastmoney.com/api/qt/article/list", "params": {"secuCode": stock_code, "secuMarket": "1", "pageNum": 1, "pageSize": page_size}},
         {"url": "https://search-api-web.eastmoney.com/search/jsonp", "params": {"cb": "", "param": json.dumps(search_param)}},
+        {"url": "https://search-api-web.eastmoney.com/search/jsonp", "params": {"cb": "", "param": json.dumps(keyword_param)}},
         {"url": "https://push.eastmoney.com/api/qt/article/list", "params": {"secuCode": stock_code, "secuMarket": "1", "pageNum": 1, "pageSize": page_size}},
     ]
 
@@ -56,26 +77,35 @@ def fetch_eastmoney_news(stock_code="603296", page_size=20):
                 match = re.search(r'\(([\s\S]+)\)\s*$', text)
                 if match:
                     text = match.group(1)
-            data = json.loads(text)
-            if data:
-                break
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and any(k in parsed for k in ["data", "list", "result"]):
+                data = parsed
+                if data.get("data") or data.get("list"):
+                    break
+            elif isinstance(parsed, list) and len(parsed) > 0:
+                return parse_article_list(parsed, "东方财富")
         except Exception as e:
             print(f"[调试] 东方财富接口 {api['url']} 失败: {e}", flush=True)
             data = None
             continue
 
-    if not data:
-        print("[警告] 东方财富所有接口均失败", flush=True)
-        return []
+    if data:
+        articles = []
+        if "data" in data and isinstance(data["data"], list):
+            articles = data["data"]
+        elif "list" in data:
+            articles = data["list"]
+        elif "result" in data and "list" in data.get("result", {}):
+            articles = data["result"]["list"]
+        if articles:
+            return parse_article_list(articles, "东方财富")
 
-    articles = []
-    if "data" in data and isinstance(data["data"], list):
-        articles = data["data"]
-    elif "list" in data:
-        articles = data["list"]
-    elif "result" in data and "list" in data.get("result", {}):
-        articles = data["result"]["list"]
+    print(f"[调试] 东方财富接口均返回空，尝试HTML抓取兜底...", flush=True)
+    return fetch_eastmoney_news_html(stock_code, page_size)
 
+
+def parse_article_list(articles, source):
+    """解析文章列表为统一格式"""
     results = []
     for art in articles:
         if not art:
@@ -97,11 +127,51 @@ def fetch_eastmoney_news(stock_code="603296", page_size=20):
         results.append({
             "title": title,
             "summary": summary,
-            "source": "东方财富",
+            "source": source,
             "url": art_url,
             "pub_time": pub_dt.strftime("%Y-%m-%d %H:%M"),
             "timestamp": pub_dt.timestamp(),
         })
+    return results
+
+
+def fetch_eastmoney_news_html(stock_code="603296", page_size=20):
+    """通过抓取东方财富股吧HTML页面获取新闻"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://guba.eastmoney.com/",
+    }
+    proxies = {"http": None, "https": None}
+    results = []
+
+    urls = [
+        f"https://guba.eastmoney.com/list,{stock_code}.html",
+        f"https://so.eastmoney.com/news/s?keyword={stock_code}&pageindex=1&pagesize={page_size}",
+    ]
+
+    for url in urls:
+        try:
+            resp = requests.get(url, headers=headers, timeout=10, proxies=proxies)
+            resp.encoding = "utf-8"
+            html = resp.text
+            titles = re.findall(r'title="([^"]*)"', html)
+            links = re.findall(r'href="(https?://[^"]*)"', html)
+            if titles and links:
+                for i, title in enumerate(titles):
+                    if stock_code in title:
+                        results.append({
+                            "title": title,
+                            "summary": "",
+                            "source": "东方财富",
+                            "url": links[i] if i < len(links) else "",
+                            "pub_time": datetime.now(CST).strftime("%Y-%m-%d %H:%M"),
+                            "timestamp": time.time(),
+                        })
+                if results:
+                    return results[:page_size]
+        except Exception as e:
+            print(f"[调试] 东方财富HTML抓取失败: {e}", flush=True)
+            continue
 
     return results
 
@@ -176,54 +246,67 @@ def fetch_sina_news(stock_code="603296"):
 
 
 def fetch_stock_price(stock_code="603296"):
-    """获取实时股票行情"""
-    url = "https://push2.eastmoney.com/api/qt/stock/get"
-    params = {
-        "secid": f"1.{stock_code}",
-        "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f169,f170,f100"
-    }
+    """获取实时股票行情（含数据合理性校验）"""
+    urls = [
+        {"url": "https://push2.eastmoney.com/api/qt/stock/get", "params": {"secid": f"1.{stock_code}", "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f169,f170,f100"}},
+        {"url": "https://push2.eastmoney.com/api/qt/stock/get", "params": {"secid": f"0.{stock_code}", "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f169,f170,f100"}},
+    ]
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://quote.eastmoney.com/",
     }
     proxies = {"http": None, "https": None}
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=10, proxies=proxies)
-        data = resp.json()
-        d = data.get("data", {})
-        if d:
-            def format_num(val):
-                if val is None:
-                    return "--"
-                try:
-                    return f"{val:.2f}"
-                except:
-                    return str(val)
 
-            def format_market_cap(val):
-                if val is None:
-                    return "--"
-                try:
-                    return f"{val / 100000000:.2f}"
-                except:
-                    return "--"
+    for api in urls:
+        try:
+            resp = requests.get(api["url"], params=api["params"], headers=headers, timeout=10, proxies=proxies)
+            data = resp.json()
+            d = data.get("data", {})
+            if d and d.get("f43") and d.get("f43") != "-":
+                price = float(d["f43"])
+                if price <= 0 or price > 10000:
+                    print(f"[调试] 股价 {price} 超出合理范围，跳过此接口", flush=True)
+                    continue
 
-            change_pct = d.get("f48", 0)
-            change_pct_str = f"{change_pct:+.2f}%" if change_pct is not None else "--"
-            return {
-                "name": d.get("f58", stock_code),
-                "code": d.get("f57", stock_code),
-                "price": format_num(d.get("f43")),
-                "high": format_num(d.get("f44")),
-                "low": format_num(d.get("f45")),
-                "open": format_num(d.get("f46")),
-                "change": format_num(d.get("f47")),
-                "change_pct": change_pct_str,
-                "total_market_cap": format_market_cap(d.get("f169")),
-                "circulating_market_cap": format_market_cap(d.get("f170")),
-            }
-    except Exception as e:
-        print(f"[警告] 股票行情获取失败: {e}", flush=True)
+                def format_num(val):
+                    if val is None:
+                        return "--"
+                    try:
+                        return f"{val:.2f}"
+                    except:
+                        return str(val)
+
+                def format_market_cap(val):
+                    if val is None:
+                        return "--"
+                    try:
+                        return f"{val / 100000000:.2f}"
+                    except:
+                        return "--"
+
+                change_pct = d.get("f48")
+                if change_pct is not None and abs(change_pct) < 100:
+                    change_pct_str = f"{change_pct:+.2f}%"
+                else:
+                    change_pct_str = "--"
+
+                return {
+                    "name": d.get("f58", stock_code),
+                    "code": d.get("f57", stock_code),
+                    "price": format_num(price),
+                    "high": format_num(d.get("f44")),
+                    "low": format_num(d.get("f45")),
+                    "open": format_num(d.get("f46")),
+                    "change": format_num(d.get("f47")),
+                    "change_pct": change_pct_str,
+                    "total_market_cap": format_market_cap(d.get("f169")),
+                    "circulating_market_cap": format_market_cap(d.get("f170")),
+                }
+        except Exception as e:
+            print(f"[调试] 行情接口 {api['url']} 失败: {e}", flush=True)
+            continue
+
+    print(f"[警告] 股票行情获取失败", flush=True)
     return None
 
 
@@ -239,19 +322,19 @@ def deduplicate_news(news_list):
     return unique
 
 
-def fetch_all_news(stock_code="603296", hours_back=24, max_count=20):
+def fetch_all_news(stock_code="603296", stock_name="华勤技术", hours_back=24, max_count=20):
     """从所有源抓取新闻并合并去重"""
     all_news = []
     try:
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            em_future = executor.submit(fetch_eastmoney_news, stock_code, max_count)
+            em_future = executor.submit(fetch_eastmoney_news, stock_code, stock_name, max_count)
             sina_future = executor.submit(fetch_sina_news, stock_code)
             all_news.extend(em_future.result())
             all_news.extend(sina_future.result())
     except Exception as e:
         print(f"[警告] 并行抓取失败，切换为串行: {e}", flush=True)
-        all_news.extend(fetch_eastmoney_news(stock_code, max_count))
+        all_news.extend(fetch_eastmoney_news(stock_code, stock_name, max_count))
         all_news.extend(fetch_sina_news(stock_code))
 
     all_news = deduplicate_news(all_news)

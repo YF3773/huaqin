@@ -30,7 +30,13 @@ def send_webhook_message(webhook_url, content, msg_type="text"):
             headers={"Content-Type": "application/json"},
             timeout=15,
         )
-        result = resp.json()
+        text = resp.text.strip()
+        idx = 0
+        while idx < len(text) and text[idx] not in "{[":
+            idx += 1
+        if idx > 0:
+            text = text[idx:]
+        result = json.loads(text)
         if result.get("code") == 0:
             print("[OK] 飞书消息发送成功")
             return True
