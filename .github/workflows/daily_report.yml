@@ -1,7 +1,7 @@
-name: 华勤技术每日新闻汇总
+name: 华勤技术收盘日报
 on:
   schedule:
-    - cron: "0 1 * * 1-5"
+    - cron: "30 7 * * 1-5"
   workflow_dispatch:
 jobs:
   stock-report:
@@ -19,9 +19,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: 运行股价播报
+      - name: 运行收盘播报
         run: python main.py
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           STOCK_CODE: "603296"
           STOCK_NAME: "华勤技术"
+          BUY_PRICE: "116.03"
+          SHARES: "100"
