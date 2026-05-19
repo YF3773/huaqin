@@ -1,0 +1,27 @@
+name: 华勤技术每日新闻汇总
+on:
+  schedule:
+    - cron: "0 1 * * 1-5"
+  workflow_dispatch:
+jobs:
+  stock-report:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: 运行股价播报
+        run: python main.py
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          STOCK_CODE: "603296"
+          STOCK_NAME: "华勤技术"

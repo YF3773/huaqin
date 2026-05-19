@@ -1,0 +1,13 @@
+# 飞书机器人配置
+# 提示：在 GitHub Actions 中运行时，这些配置通过环境变量/Secrets 设置
+# 飞书 Webhook URL（建议通过 GitHub Secrets 设置，此处留空）
+webhook_url: ""
+# 股票配置
+stock_code: "603296"
+stock_name: "华勤技术"
+# 新闻抓取设置
+news:
+  max_count: 20
+  hours_back: 24
+# 发送设置
+send_empty_report: false
