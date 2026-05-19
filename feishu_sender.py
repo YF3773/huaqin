@@ -175,3 +175,57 @@ def send_news_report(webhook_url, stock_price, news_list, date_str, stock_name="
         for i, item in enumerate(news_list, 1):
             text_lines.append(f"{i}. [{item['source']}] {item['title']} - {item['pub_time']}")
         return send_webhook_message(webhook_url, "\n".join(text_lines), msg_type="text")
+
+
+def get_tenant_token(app_id, app_secret):
+    """获取飞书应用 tenant_access_token"""
+    try:
+        resp = requests.post(
+            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            json={"app_id": app_id, "app_secret": app_secret},
+            timeout=10,
+        )
+        result = resp.json()
+        token = result.get("tenant_access_token", "")
+        if token:
+            print("[OK] 获取 tenant_token 成功", flush=True)
+            return token
+        else:
+            print(f"[错误] 获取 tenant_token 失败: {result}", flush=True)
+            return None
+    except Exception as e:
+        print(f"[错误] 获取 tenant_token 异常: {e}", flush=True)
+        return None
+
+
+def send_bot_text_message(app_id, app_secret, chat_id, text):
+    """通过Bot应用发送文本消息到群聊"""
+    token = get_tenant_token(app_id, app_secret)
+    if not token:
+        return False
+
+    try:
+        body = json.dumps({
+            "receive_id": chat_id,
+            "msg_type": "text",
+            "content": json.dumps({"text": text})
+        }, ensure_ascii=False)
+        resp = requests.post(
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            timeout=15,
+        )
+        result = resp.json()
+        if result.get("code") == 0:
+            print("[OK] Bot消息发送成功", flush=True)
+            return True
+        else:
+            print(f"[错误] Bot发送失败: {result.get('msg', '未知错误')}", flush=True)
+            return False
+    except Exception as e:
+        print(f"[错误] Bot发送异常: {e}", flush=True)
+        return False

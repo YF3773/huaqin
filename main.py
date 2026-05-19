@@ -2,14 +2,14 @@ import sys
 sys.stdout.reconfigure(encoding="utf-8")
 
 """
-华勤技术股价播报机器人 - 仅推送收盘日报
+华勤技术股价播报机器人 - 推送收盘日报（Bot应用 + Webhook双通道）
 """
 
 import os
 from datetime import datetime, timezone, timedelta
 
 from news_fetcher import fetch_stock_price
-from feishu_sender import send_webhook_message
+from feishu_sender import send_webhook_message, send_bot_text_message
 
 CST = timezone(timedelta(hours=8))
 
@@ -18,6 +18,9 @@ STOCK_CODE = os.environ.get("STOCK_CODE", "603296")
 STOCK_NAME = os.environ.get("STOCK_NAME", "华勤技术")
 BUY_PRICE = float(os.environ.get("BUY_PRICE", "116.03"))
 SHARES = int(os.environ.get("SHARES", "100"))
+LARK_APP_ID = os.environ.get("LARK_APP_ID", "")
+LARK_APP_SECRET = os.environ.get("LARK_APP_SECRET", "")
+LARK_CHAT_ID = os.environ.get("LARK_CHAT_ID", "")
 
 
 def build_price_report(stock_price):
@@ -60,6 +63,24 @@ def build_price_report(stock_price):
     return "\n".join(lines)
 
 
+def send_report(text):
+    sent = False
+
+    if LARK_APP_ID and LARK_APP_SECRET and LARK_CHAT_ID:
+        print("发送到「野子的智能助手」...", flush=True)
+        if send_bot_text_message(LARK_APP_ID, LARK_APP_SECRET, LARK_CHAT_ID, text):
+            sent = True
+        else:
+            print("Bot发送失败，尝试Webhook兜底...", flush=True)
+
+    if not sent and WEBHOOK_URL:
+        print("发送到Webhook机器人...", flush=True)
+        if send_webhook_message(WEBHOOK_URL, text, msg_type="text"):
+            sent = True
+
+    return sent
+
+
 def main():
     print(f"开始查询 {STOCK_NAME}({STOCK_CODE}) 行情...", flush=True)
 
@@ -71,7 +92,7 @@ def main():
 
     print("发送飞书消息...", flush=True)
     text = build_price_report(stock_price)
-    success = send_webhook_message(WEBHOOK_URL, text, msg_type="text")
+    success = send_report(text)
     if success:
         print("发送完成！", flush=True)
     else:

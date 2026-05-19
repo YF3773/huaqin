@@ -20,7 +20,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: 运行股价播报
+      - name: 运行收盘播报
         run: python main.py
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
@@ -28,3 +28,6 @@ jobs:
           STOCK_NAME: "华勤技术"
           BUY_PRICE: "116.03"
           SHARES: "100"
+          LARK_APP_ID: "cli_aa81e693a4619bdd"
+          LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
+          LARK_CHAT_ID: ${{ secrets.LARK_CHAT_ID }}
