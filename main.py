@@ -23,8 +23,17 @@ LARK_APP_SECRET = os.environ.get("LARK_APP_SECRET", "")
 LARK_CHAT_ID = os.environ.get("LARK_CHAT_ID", "")
 
 
+def build_report_title():
+    hour = datetime.now(CST).hour
+    if 11 <= hour <= 12:
+        return "午间收盘播报", "🌤"
+    else:
+        return "收盘播报", "🌙"
+
+
 def build_price_report(stock_price):
     today = datetime.now(CST).strftime("%Y-%m-%d")
+    report_title, report_icon = build_report_title()
     if not stock_price:
         return f"⚠️ {STOCK_NAME} 行情数据暂时无法获取"
 
@@ -45,7 +54,7 @@ def build_price_report(stock_price):
     pnl_emoji = "🔴" if pnl < 0 else "🟢"
 
     lines = [
-        f"📊 {STOCK_NAME} 收盘日报",
+        f"{report_icon} {STOCK_NAME} {report_title}",
         "━━━━━━━━━━━━━━━━",
         f"📅 日期：{today}",
         "",
