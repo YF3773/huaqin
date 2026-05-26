@@ -24,6 +24,11 @@ LARK_CHAT_ID = os.environ.get("LARK_CHAT_ID", "")
 
 
 def build_report_title():
+    report_type = os.environ.get("REPORT_TYPE", "")
+    if report_type == "noon":
+        return "午间收盘播报", "🌤"
+    if report_type == "close":
+        return "收盘播报", "🌙"
     hour = datetime.now(CST).hour
     if 11 <= hour <= 12:
         return "午间收盘播报", "🌤"

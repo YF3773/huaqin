@@ -1,8 +1,7 @@
-name: 华勤技术收盘日报
+name: 华勤技术午间收盘播报
 on:
   schedule:
     - cron: "38 3 * * 1-5"
-    - cron: "13 7 * * 1-5"
   workflow_dispatch:
 jobs:
   stock-report:
@@ -20,7 +19,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: 运行收盘播报
+      - name: 运行午间收盘播报
         run: python main.py
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
@@ -31,3 +30,4 @@ jobs:
           LARK_APP_ID: "cli_aa81e693a4619bdd"
           LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
           LARK_CHAT_ID: ${{ secrets.LARK_CHAT_ID }}
+          REPORT_TYPE: "noon"
